@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5f0">
+  <meta name="description" content="Choose your cartelas and play live 75-ball Bingo inside Telegram.">
+  <title>Bingo · A little luck, a lot of fun.</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='20' fill='%23174d3d'/%3E%3Ctext x='32' y='45' font-size='45' text-anchor='middle' fill='white' font-family='sans-serif'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Bingo home"><span class="brand-mark">b<span>·</span></span><span>bingo<span class="brand-period">.</span></span></a>
+      <div class="header-actions"><span class="demo-pill" data-i18n="demo">DEMO CREDITS</span><button id="language" class="text-button" type="button" aria-label="Change language">አማ</button><button id="rules-button" class="icon-button" type="button" aria-label="Game rules">?</button></div>
+    </header>
+
+    <div id="connection" class="connection" role="status" hidden></div>
+    <main>
+      <section class="intro">
+        <div><div class="eyebrow"><span class="live-dot"></span><span data-i18n="liveRoom">THE LIVE BINGO ROOM</span></div><h1 id="headline">Your next lucky number.</h1><p id="subtitle">Pick your cards. Follow the calls. Make it bingo.</p></div>
+        <div class="balance"><span data-i18n="yourBalance">Your balance</span><strong><span id="balance">—</span> <small data-i18n="credits">credits</small></strong><span id="player-name" class="muted">Connecting…</span></div>
+      </section>
+
+      <section class="round-strip" aria-label="Round status">
+        <div class="round-phase"><span class="status-orb" id="status-orb"></span><div><strong id="phase-label">Opening the room</strong><span id="round-label">—</span></div></div>
+        <div class="countdown"><span id="timer-label">REGISTRATION CLOSES IN</span><strong id="countdown">00:00</strong></div>
+        <div class="timer-track"><div id="timer-fill"></div></div>
+      </section>
+
+      <div class="stats-grid">
+        <div class="stat"><span class="stat-symbol">✦</span><div><span data-i18n="prizePool">Prize pool</span><strong><span id="pool">0</span> <small data-i18n="credits">credits</small></strong></div></div>
+        <div class="stat"><span class="stat-symbol">↗</span><div><span data-i18n="inTheRoom">In this round</span><strong><span id="players">0</span> <small data-i18n="players">players</small></strong></div></div>
+        <div class="stat"><span class="stat-symbol">▦</span><div><span data-i18n="perCard">Entry per card</span><strong><span id="entry">10</span> <small data-i18n="credits">credits</small></strong></div></div>
+      </div>
+
+      <section id="results" class="results" aria-live="polite" hidden></section>
+
+      <div class="game-layout">
+        <section class="board-panel panel">
+          <div class="panel-heading"><div><div class="eyebrow" id="board-eyebrow">FIND YOUR FAVORITES</div><h2 id="board-title">Choose your cartelas<span>.</span></h2></div><span class="quiet-tag" id="board-counter">600 cards</span></div>
+          <div id="selection-tools">
+            <div class="board-toolbar"><div class="range-tabs" id="ranges" aria-label="Card ranges"></div><label class="card-search"><span aria-hidden="true">⌕</span><input id="card-search" type="number" min="1" max="600" placeholder="Find card" aria-label="Find a card number"></label></div>
+            <div class="legend"><span><i class="legend-dot available"></i><span data-i18n="available">Available</span></span><span><i class="legend-dot yours"></i><span data-i18n="yourCards">Your cards</span></span><span><i class="legend-dot taken"></i><span data-i18n="reserved">Reserved</span></span></div>
+          </div>
+          <div id="current-call" class="current-call" hidden><div><div class="eyebrow" data-i18n="latestCall">LATEST CALL</div><div id="call-message" class="call-message"></div><div class="recent-balls" id="recent-balls"></div></div><div class="bingo-ball"><span id="ball-letter">B</span><strong id="ball-number">—</strong></div></div>
+          <div id="number-board" class="number-board" aria-label="Card selection board"></div>
+          <div class="board-foot"><span id="board-note">Choose up to 2 cards. Tap any available card to see its numbers.</span><span class="tiny-spark">✳</span></div>
+        </section>
+
+        <aside class="hand-panel" aria-label="Your playing cards">
+          <section class="panel hand-top"><div class="hand-title"><h2 data-i18n="yourHand">Your hand</h2><span id="hand-count" class="hand-count">0 / 2</span></div><div id="my-cards"></div><div class="automatic-row"><div><strong data-i18n="automatic">Automatic</strong><span data-i18n="autoHint">We’ll mark your called numbers.</span></div><button id="auto-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="Automatically mark called numbers"><span></span></button></div></section>
+          <section class="how-to"><span class="howto-icon">✧</span><h3 data-i18n="oneLine">One line. Four corners. Bingo.</h3><p data-i18n="winHint">Complete a row, column, either diagonal, or all four corners to win.</p><div class="pattern-previews" id="patterns" aria-hidden="true"></div><button id="more-rules" class="text-link" type="button"><span data-i18n="allRules">See all game rules</span> ↗</button></section>
+        </aside>
+      </div>
+      <footer><span>bingo. <span data-i18n="footer">Made for a little everyday luck.</span></span><span data-i18n="noCash">Demo credits · No cash value</span></footer>
+    </main>
+  </div>
+
+  <dialog id="preview-dialog"><div class="dialog-heading"><div><div class="eyebrow" data-i18n="takeALook">TAKE A LOOK</div><h2 id="preview-title">Cartela</h2></div><button class="dialog-close icon-button" type="button" aria-label="Close preview">×</button></div><div id="preview-card"></div><p class="preview-note" id="preview-note"></p><button id="reserve-button" class="primary-button" type="button" data-i18n="reserveCard">Choose this card</button></dialog>
+  <dialog id="rules-dialog"><div class="dialog-heading"><h2 data-i18n="rulesTitle">How to play</h2><button class="dialog-close icon-button" type="button" aria-label="Close rules">×</button></div><div id="rules-content" class="rules-content"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
