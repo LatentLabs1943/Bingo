@@ -1,0 +1,15 @@
+.env
+.env.*
+.venv
+node_modules
+data
+tests
+artifacts
+test-results
+.git
+.agents
+.codex
+.aws
+.vscode
+__pycache__
+**/__pycache__
