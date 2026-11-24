@@ -1,0 +1,11 @@
+{
+  "name": "telegram-bingo-ui-checks",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/frontend.test.cjs",
+    "check": "node --check web/app.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}
