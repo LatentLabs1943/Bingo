@@ -2,7 +2,9 @@
 
 const $ = (id) => document.getElementById(id);
 const telegram = window.Telegram?.WebApp;
-let language = localStorage.getItem("bingo-language") || (telegram?.initDataUnsafe?.user?.language_code?.startsWith("am") ? "am" : "en");
+let savedLanguage;
+try { savedLanguage = localStorage.getItem("bingo-language"); } catch { /* Storage can be disabled in a webview. */ }
+let language = savedLanguage || (telegram?.initDataUnsafe?.user?.language_code?.startsWith("am") ? "am" : "en");
 let snapshot = null;
 let config = null;
 let range = 0;
@@ -28,6 +30,7 @@ const translations = {
     winHint: "Complete a row, column, either diagonal, or all four corners to win.",
     allRules: "See all game rules", footer: "Made for a little everyday luck.",
     noCash: "Demo credits · No cash value", takeALook: "TAKE A LOOK", reserveCard: "Choose this card",
+    darkMode: "Dark mode", toDark: "Switch to dark mode", toLight: "Switch to light mode",
     rulesTitle: "How to play", headline: "Your next lucky number.",
     subtitle: "Pick your cards. Follow the calls. Make it bingo.",
     registration: "Registration is open", playing: "The game is live", finished: "That’s a round!",
@@ -62,6 +65,7 @@ const translations = {
     winHint: "ወደጎን፣ ወደታች፣ አግዳሚ መስመር ወይም አራቱን ማእዘናት ይሙሉ።",
     allRules: "ሁሉንም የጨዋታ ህጎች ይመልከቱ", footer: "በየቀኑ ትንሽ ዕድል።",
     noCash: "የሙከራ ክሬዲት · የገንዘብ ዋጋ የለውም", takeALook: "ካርዱን ይመልከቱ", reserveCard: "ይህን ካርድ ይምረጡ",
+    darkMode: "ጨለማ ገጽታ", toDark: "ወደ ጨለማ ገጽታ ቀይር", toLight: "ወደ ብርሃን ገጽታ ቀይር",
     rulesTitle: "የቢንጎ ጨዋታ ህጎች", headline: "ቀጣዩ ዕድለኛ ቁጥርዎ።",
     subtitle: "ካርድ ይምረጡ። ጥሪዎችን ይከታተሉ። ቢንጎ ይበሉ።",
     registration: "ምዝገባ ተከፍቷል", playing: "ጨዋታው ተጀምሯል", finished: "ዙሩ ተጠናቋል!",
@@ -364,6 +368,13 @@ async function showPreview(id) {
   } catch (error) { toast(error.message); }
 }
 
+function updateThemeButton() {
+  const dark = window.BingoTheme?.current === "dark";
+  $("theme-toggle").setAttribute("aria-pressed", String(dark));
+  $("theme-toggle").setAttribute("aria-label", t("darkMode"));
+  $("theme-toggle").title = t(dark ? "toLight" : "toDark");
+}
+
 function applyLanguage() {
   if (!translations[language]) language = "en";
   document.documentElement.lang = language;
@@ -375,11 +386,18 @@ function applyLanguage() {
   $("card-search").placeholder = t("findCard");
   $("rules-content").textContent = config?.rules[language] || "";
   $("rules-content").lang = language;
+  updateThemeButton();
   renderRanges(); render();
   if (preview) $("preview-card").replaceChildren(cardElement(preview));
 }
 
-$("language").addEventListener("click", () => { language = language === "en" ? "am" : "en"; localStorage.setItem("bingo-language", language); applyLanguage(); });
+$("language").addEventListener("click", () => {
+  language = language === "en" ? "am" : "en";
+  try { localStorage.setItem("bingo-language", language); } catch { /* Keep the current language for this session. */ }
+  applyLanguage();
+});
+$("theme-toggle").addEventListener("click", () => window.BingoTheme?.toggle());
+window.addEventListener("bingo:themechange", updateThemeButton);
 for (const id of ["rules-button", "more-rules"]) $(id).addEventListener("click", () => $("rules-dialog").showModal());
 for (const button of document.querySelectorAll(".dialog-close")) button.addEventListener("click", () => button.closest("dialog").close());
 for (const dialog of document.querySelectorAll("dialog")) dialog.addEventListener("click", event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
@@ -433,7 +451,6 @@ async function poll() {
 }
 telegram?.ready();
 telegram?.expand();
-telegram?.setHeaderColor?.("#f6f5f0");
-telegram?.setBackgroundColor?.("#f6f5f0");
+window.BingoTheme?.sync();
 enqueue(start).then(poll);
 setInterval(updateTimer, 200);

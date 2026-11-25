@@ -7,15 +7,16 @@
   <meta name="description" content="Choose your cartelas and play live 75-ball Bingo inside Telegram.">
   <title>Bingo · A little luck, a lot of fun.</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='20' fill='%23174d3d'/%3E%3Ctext x='32' y='45' font-size='45' text-anchor='middle' fill='white' font-family='sans-serif'%3EB%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/style.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
     <header class="site-header">
       <a class="brand" href="/" aria-label="Bingo home"><span class="brand-mark">b<span>·</span></span><span>bingo<span class="brand-period">.</span></span></a>
-      <div class="header-actions"><span class="demo-pill" data-i18n="demo">DEMO CREDITS</span><button id="language" class="text-button" type="button" aria-label="Change language">አማ</button><button id="rules-button" class="icon-button" type="button" aria-label="Game rules">?</button></div>
+      <div class="header-actions"><span class="demo-pill" data-i18n="demo">DEMO CREDITS</span><button id="language" class="text-button" type="button" aria-label="Change language">አማ</button><button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Dark mode" aria-pressed="false" title="Switch to dark mode"><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button><button id="rules-button" class="icon-button" type="button" aria-label="Game rules">?</button></div>
     </header>
 
     <div id="connection" class="connection" role="status" hidden></div>

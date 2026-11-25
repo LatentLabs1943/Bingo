@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/frontend.test.cjs",
-    "check": "node --check web/app.js"
+    "check": "node --check web/app.js && node --check web/theme.js"
   },
   "devDependencies": {
     "jsdom": "^26.1.0"

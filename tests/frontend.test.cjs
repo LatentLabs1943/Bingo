@@ -9,12 +9,14 @@ const {JSDOM} = require("jsdom");
 const root = path.resolve(__dirname, "..");
 const markup = fs.readFileSync(path.join(root, "web/index.html"), "utf8");
 const script = fs.readFileSync(path.join(root, "web/app.js"), "utf8");
+const themeScript = fs.readFileSync(path.join(root, "web/theme.js"), "utf8");
 const roundId = "a".repeat(32);
 const cells = [1,16,31,46,61,2,17,32,47,62,3,18,0,48,63,4,19,34,49,64,5,20,35,50,65];
 
 async function setup() {
   const dom = new JSDOM(markup, {url: "http://localhost:8000", runScripts: "outside-only", pretendToBeVisual: true});
   const w = dom.window;
+  if (process.env.BINGO_TEST_THEME) w.localStorage.setItem("bingo-theme", process.env.BINGO_TEST_THEME);
   let state = {
     game: {id: roundId, phase:"registration", called:[], pool:10, winners:[], reserved:[2], players:1,
       my_cards:[], deadline:Date.now()/1000+60, server_time:Date.now()/1000, entry_credits:10,
@@ -57,6 +59,7 @@ async function setup() {
   w.setTimeout = (callback, ms) => { timers.push({callback, ms}); return timers.length; };
   w.setInterval = () => 1;
   w.clearTimeout = () => {};
+  w.eval(themeScript);
   w.eval(script + '\nwindow.__refreshForTest = () => enqueue(async () => acceptState(await api("/api/state")));');
   const flush = async () => { for (let i=0;i<8;i++) await new Promise(resolve => setImmediate(resolve)); };
   await flush();
