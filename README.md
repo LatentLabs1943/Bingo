@@ -8,7 +8,17 @@ This version uses **demo credits only**, including when launched from a real Tel
 
 The app is deployed at **https://bingo-telegram-olive.vercel.app**. Open **https://t.me/luckybingo75_bot**, send `/start`, and tap **Play Bingo** to authenticate and play. The deployment uses the Vercel Hobby project `bingo-telegram` and the connected Neon Free database `bingo-db`. The public `/health` endpoint checks database access; game endpoints require signed Telegram launch data. Production uses request-driven round timing as described below.
 
-To publish future local changes from this linked directory, run `npx vercel deploy --prod --yes --scope acychappiekiller-3442`. Production credentials are already configured in Vercel. The local `.env` contains the bot settings needed by `python -m bingo.setup_webhook --check`; it is excluded from uploads and Git.
+The production Git repository is [LatentLabs1943/Bingo](https://github.com/LatentLabs1943/Bingo), with `master` as the production branch. Once it is connected under the existing Vercel project's **Settings > Git**, Vercel builds and publishes every push to `master` automatically:
+
+```powershell
+git add <changed-files>
+git commit -m "Describe the change"
+git push origin master
+```
+
+Check the resulting deployment under **Deployments** in the `bingo-telegram` Vercel project. Other branches create preview deployments; production credentials and the Neon database are configured for Production, so previews need their own environment configuration before testing gameplay. The existing production URL stays the same. Database schema changes still need to be handled as part of the application update.
+
+Production credentials are already configured in Vercel. The local `.env` contains the bot settings needed by `python -m bingo.setup_webhook --check`; it is excluded from uploads and Git. Manual deployment remains available with `npx vercel deploy --prod --yes --scope acychappiekiller-3442` when needed.
 
 ## Run the browser demo
 
