@@ -14,7 +14,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, balance TEXT NOT NULL,
-    automatic INTEGER NOT NULL DEFAULT 0
+    automatic INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS cards (id INTEGER PRIMARY KEY, cells TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS rounds (
@@ -35,6 +35,39 @@ CREATE TABLE IF NOT EXISTS ledger (
 CREATE TABLE IF NOT EXISTS telegram_updates (
     update_id BIGINT PRIMARY KEY, done INTEGER NOT NULL DEFAULT 0,
     lease_until {timestamp} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_events (
+    id {identity}, user_id TEXT NOT NULL, created {timestamp} NOT NULL,
+    settings TEXT NOT NULL, version INTEGER NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS admin_members (
+    user_id TEXT PRIMARY KEY, added_by TEXT NOT NULL, created {timestamp} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_revocations (
+    user_id TEXT PRIMARY KEY, revoked_by TEXT NOT NULL, created {timestamp} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS owner_events (
+    id {identity}, user_id TEXT NOT NULL, action TEXT NOT NULL,
+    target TEXT NOT NULL, created {timestamp} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS wallets (
+    user_id TEXT PRIMARY KEY REFERENCES users(id), balance TEXT NOT NULL DEFAULT '0'
+);
+CREATE TABLE IF NOT EXISTS wallet_ledger (
+    id {identity}, user_id TEXT NOT NULL, round_id TEXT, request_id TEXT,
+    amount TEXT NOT NULL, reason TEXT NOT NULL, created {timestamp} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS money_requests (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), kind TEXT NOT NULL,
+    status TEXT NOT NULL, amount TEXT NOT NULL, reference TEXT UNIQUE, account TEXT NOT NULL,
+    receipt TEXT, created {timestamp} NOT NULL, reviewed {timestamp}, reviewer TEXT,
+    note TEXT NOT NULL DEFAULT '', payment_reference TEXT UNIQUE, idempotency_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS request_user_created ON money_requests(user_id,created DESC);
+CREATE TABLE IF NOT EXISTS house_ledger (
+    round_id TEXT PRIMARY KEY REFERENCES rounds(id), funds_mode TEXT NOT NULL,
+    gross TEXT NOT NULL, fee TEXT NOT NULL, prize_pool TEXT NOT NULL,
+    created {timestamp} NOT NULL
 );
 """
 
