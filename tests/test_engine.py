@@ -22,12 +22,17 @@ class EngineTests(unittest.TestCase):
         self.round = self.initial["game"]["id"]
         self.now = self.initial["game"]["server_time"]
         self.deadline = self.initial["game"]["deadline"]
+        # Most scenarios below deliberately exercise manual marking.
+        for uid in ("a", "b", "c"):
+            self.engine.act(uid, self.round, "automatic", enabled=False, now=self.now)
 
     def make_settings(self, path):
-        return Settings(database_path=path)
+        return Settings(database_path=path, min_players=1, seat_limit=600)
 
     def select(self, uid, card):
-        return self.engine.act(uid, self.round, "select", card_id=card, now=self.now)
+        state = self.engine.act(uid, self.round, "select", card_id=card, now=self.now)
+        self.deadline = state["game"]["deadline"]
+        return state
 
     def prepare_play(self, *, called=None, marks=None, deadline=None):
         with self.engine._transaction() as db:
@@ -68,7 +73,9 @@ class EngineTests(unittest.TestCase):
         self.select("a", 1)
         state = self.select("a", 2)
         self.assertEqual(state["user"]["balance"], "980")
-        self.assertEqual(state["game"]["pool"], 20)
+        self.assertEqual(state["game"]["pool"], "16")
+        self.assertNotIn("gross_pool", state["game"])
+        self.assertNotIn("house_fee", state["game"])
         with self.assertRaisesRegex(GameError, "two cards"):
             self.select("a", 3)
         self.assertEqual(self.engine.state("a", self.now)["user"]["balance"], "980")
@@ -82,7 +89,7 @@ class EngineTests(unittest.TestCase):
         for _ in range(2):
             state = self.engine.act("a", self.round, "release", card_id=1, now=self.now)
         self.assertEqual(state["user"]["balance"], "1000")
-        self.assertEqual(state["game"]["pool"], 0)
+        self.assertEqual(state["game"]["pool"], "0")
 
     def test_two_simultaneous_reservations_have_one_owner(self):
         def reserve(uid):
@@ -96,7 +103,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(sum(result is not None for result in results), 1)
         state = self.engine.state("a", self.now)
         self.assertEqual(state["game"]["reserved"], [80])
-        self.assertEqual(state["game"]["pool"], 10)
+        self.assertEqual(state["game"]["pool"], "8")
 
     def test_concurrent_third_card_is_rejected(self):
         with ThreadPoolExecutor(max_workers=3) as pool:
@@ -117,13 +124,14 @@ class EngineTests(unittest.TestCase):
             self.select("a", 1)
         state = self.engine.state("a", self.now)
         self.assertEqual(state["game"]["reserved"], [])
-        self.assertEqual(state["game"]["pool"], 0)
+        self.assertEqual(state["game"]["pool"], "0")
 
-    def test_empty_registration_renews_without_drawing(self):
+    def test_empty_registration_waits_without_drawing(self):
         state = self.engine.state("a", self.deadline)
         self.assertEqual(state["game"]["phase"], "registration")
         self.assertEqual(state["game"]["called"], [])
-        self.assertGreater(state["game"]["deadline"], self.deadline)
+        self.assertTrue(state["game"]["waiting_for_players"])
+        self.assertEqual(state["game"]["id"], self.round)
 
     def test_registration_closes_at_deadline_and_transition_persists_after_error(self):
         self.select("a", 1)
@@ -153,6 +161,22 @@ class EngineTests(unittest.TestCase):
         state = self.engine.act("a", self.round, "automatic", enabled=True, now=self.now)
         self.assertEqual(state["game"]["my_cards"][0]["marks"], [0, 1, 2, 12])
 
+    def test_new_players_auto_mark_by_default_and_saved_manual_choice_survives_restart(self):
+        self.engine.register_user("fresh", "New player")
+        self.assertTrue(self.engine.state("fresh", self.now)["user"]["automatic"])
+        self.engine.act("fresh", self.round, "select", card_id=1, now=self.now)
+        number = self.engine.card(1)["cells"][0]
+        with self.engine._transaction() as db:
+            game = self.engine._game(db)
+            game.update(phase="playing", called=[], deck=[number], deadline=self.now)
+            self.engine._save(db, game)
+        state = self.engine.state("fresh", self.now)
+        self.assertIn(0, state["game"]["my_cards"][0]["marks"])
+        self.engine.act("fresh", self.round, "automatic", enabled=False, now=self.now)
+        restarted = Engine(self.settings)
+        restarted.register_user("fresh", "Returning player")
+        self.assertFalse(restarted.state("fresh", self.now)["user"]["automatic"])
+
     def test_complete_automatic_round_finds_real_winning_pattern_and_awards_pool(self):
         self.select("a", 1)
         self.select("b", 2)
@@ -173,7 +197,9 @@ class EngineTests(unittest.TestCase):
                 marks = [i for i, n in enumerate(card["cells"]) if n in called or i == 12]
                 self.assertTrue(winning_cells(marks))
         total = sum(Fraction(self.engine.state(uid, now)["user"]["balance"]) for uid in ["a", "b", "c"])
-        self.assertEqual(total, 3000)
+        self.assertEqual(total, 2996)
+        with self.engine._transaction() as db:
+            self.assertEqual(Fraction(db.execute("SELECT fee FROM house_ledger WHERE round_id=?", (self.round,)).fetchone()[0]) + total, 3000)
 
     def test_manual_tie_waits_for_end_of_call_interval(self):
         self.select("a", 1)
@@ -184,7 +210,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(state["game"]["phase"], "playing")
         state = self.engine.state("a", game["deadline"])
         self.assertEqual(len(state["game"]["winners"]), 2)
-        self.assertEqual([w["share"] for w in state["game"]["winners"]], ["10", "10"])
+        self.assertEqual([w["share"] for w in state["game"]["winners"]], ["8", "8"])
 
     def test_prize_splits_exactly_per_player_and_settles_once_after_restart(self):
         for uid, card in [("a", 1), ("a", 2), ("b", 3), ("c", 4)]:
@@ -192,13 +218,14 @@ class EngineTests(unittest.TestCase):
         game = self.prepare_play(marks=[0, 1, 2, 3, 4, 12])
         state = self.engine.state("a", game["deadline"])
         self.assertEqual(len(state["game"]["winners"]), 3)
-        self.assertEqual({w["share"] for w in state["game"]["winners"]}, {"40/3"})
+        self.assertEqual({w["share"] for w in state["game"]["winners"]}, {"32/3"})
         total = sum(Fraction(self.engine.state(uid, game["deadline"])["user"]["balance"]) for uid in ["a", "b", "c"])
-        self.assertEqual(total, 3000)
+        self.assertEqual(total, 2992)
         restarted = Engine(self.settings)
         self.assertEqual(restarted.state("a", game["deadline"])["user"]["balance"], state["user"]["balance"])
         with restarted._transaction() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM ledger WHERE reason='prize'").fetchone()[0], 3)
+            self.assertEqual(db.execute("SELECT fee FROM house_ledger WHERE round_id=?", (self.round,)).fetchone()[0], "8")
 
     def test_all_75_calls_are_unique_and_no_winner_refunds_entries(self):
         self.select("a", 1)
@@ -247,7 +274,7 @@ class EngineTests(unittest.TestCase):
         instances = [self.engine, Engine(self.settings)]
         with ThreadPoolExecutor(max_workers=2) as pool:
             states = list(pool.map(lambda engine: engine.state("a", game["deadline"]), instances))
-        self.assertEqual([state["user"]["balance"] for state in states], ["1000", "1000"])
+        self.assertEqual([state["user"]["balance"] for state in states], ["998", "998"])
         with self.engine._transaction() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM ledger WHERE reason='prize'").fetchone()[0], 2)
 
