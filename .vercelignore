@@ -13,3 +13,5 @@ test-results
 .vscode
 __pycache__
 **/__pycache__
+.playwright-cli
+output/playwright
