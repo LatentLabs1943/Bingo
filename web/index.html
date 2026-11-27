@@ -11,6 +11,8 @@
   <script src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
+  <script src="/static/admin.js" defer></script>
+  <script src="/static/wallet.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -26,6 +28,8 @@
         <div class="balance"><span data-i18n="yourBalance">Your balance</span><strong><span id="balance">—</span> <small data-i18n="credits">credits</small></strong><span id="player-name" class="muted">Connecting…</span></div>
       </section>
 
+      <section class="room-info" aria-label="Room settings"><span id="seat-status"></span><span id="draw-mode"></span></section>
+      <nav class="room-actions" aria-label="Account and game controls"><button id="deposit-button" class="action-button action-deposit" type="button" hidden data-wallet-i18n="deposit">Deposit</button><button id="account-button" class="action-button" type="button" data-wallet-i18n="accountTitle">My account</button><button id="admin-button" class="action-button" type="button" hidden data-i18n="roomControls">Room controls</button></nav>
       <section class="round-strip" aria-label="Round status">
         <div class="round-phase"><span class="status-orb" id="status-orb"></span><div><strong id="phase-label">Opening the room</strong><span id="round-label">—</span></div></div>
         <div class="countdown"><span id="timer-label">REGISTRATION CLOSES IN</span><strong id="countdown">00:00</strong></div>
@@ -38,11 +42,12 @@
         <div class="stat"><span class="stat-symbol">▦</span><div><span data-i18n="perCard">Entry per card</span><strong><span id="entry">10</span> <small data-i18n="credits">credits</small></strong></div></div>
       </div>
 
+      <div id="house-finance-details" class="fee-breakdown" role="note" data-owner-only hidden><span><span data-i18n="grossEntries">Total entries</span>: <strong id="gross-pool">0</strong> <span data-i18n="credits">credits</span></span><span><span data-i18n="houseFee">House fee</span> (<span id="house-percent">—</span>%): <strong id="house-fee">0</strong> <span data-i18n="credits">credits</span></span><span data-i18n="feeDisclosure">The prize pool shown is after the house fee.</span><span id="fee-transition-note" hidden></span></div>
       <section id="results" class="results" aria-live="polite" hidden></section>
 
       <div class="game-layout">
         <section class="board-panel panel">
-          <div class="panel-heading"><div><div class="eyebrow" id="board-eyebrow">FIND YOUR FAVORITES</div><h2 id="board-title">Choose your cartelas<span>.</span></h2></div><span class="quiet-tag" id="board-counter">600 cards</span></div>
+          <div class="panel-heading"><div><div class="eyebrow" id="board-eyebrow">FIND YOUR FAVORITES</div><h2 id="board-title">Choose your cartelas<span>.</span></h2></div><span class="quiet-tag" id="board-counter">—</span></div>
           <div id="selection-tools">
             <div class="board-toolbar"><div class="range-tabs" id="ranges" aria-label="Card ranges"></div><label class="card-search"><span aria-hidden="true">⌕</span><input id="card-search" type="number" min="1" max="600" placeholder="Find card" aria-label="Find a card number"></label></div>
             <div class="legend"><span><i class="legend-dot available"></i><span data-i18n="available">Available</span></span><span><i class="legend-dot yours"></i><span data-i18n="yourCards">Your cards</span></span><span><i class="legend-dot taken"></i><span data-i18n="reserved">Reserved</span></span></div>
@@ -53,7 +58,7 @@
         </section>
 
         <aside class="hand-panel" aria-label="Your playing cards">
-          <section class="panel hand-top"><div class="hand-title"><h2 data-i18n="yourHand">Your hand</h2><span id="hand-count" class="hand-count">0 / 2</span></div><div id="my-cards"></div><div class="automatic-row"><div><strong data-i18n="automatic">Automatic</strong><span data-i18n="autoHint">We’ll mark your called numbers.</span></div><button id="auto-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="Automatically mark called numbers"><span></span></button></div></section>
+          <section class="panel hand-top"><div class="hand-title"><h2 data-i18n="yourHand">Your hand</h2><span id="hand-count" class="hand-count">0 / 2</span></div><div id="my-cards"></div><div class="automatic-row"><div><strong data-i18n="automatic">Automatic</strong><span data-i18n="autoHint">We’ll mark your called numbers.</span></div><button id="auto-toggle" class="switch" type="button" role="switch" aria-checked="true" aria-label="Automatically mark called numbers"><span></span></button></div></section>
           <section class="how-to"><span class="howto-icon">✧</span><h3 data-i18n="oneLine">One line. Four corners. Bingo.</h3><p data-i18n="winHint">Complete a row, column, either diagonal, or all four corners to win.</p><div class="pattern-previews" id="patterns" aria-hidden="true"></div><button id="more-rules" class="text-link" type="button"><span data-i18n="allRules">See all game rules</span> ↗</button></section>
         </aside>
       </div>
@@ -61,8 +66,48 @@
     </main>
   </div>
 
-  <dialog id="preview-dialog"><div class="dialog-heading"><div><div class="eyebrow" data-i18n="takeALook">TAKE A LOOK</div><h2 id="preview-title">Cartela</h2></div><button class="dialog-close icon-button" type="button" aria-label="Close preview">×</button></div><div id="preview-card"></div><p class="preview-note" id="preview-note"></p><button id="reserve-button" class="primary-button" type="button" data-i18n="reserveCard">Choose this card</button></dialog>
+  <dialog id="preview-dialog"><div class="dialog-heading"><div><div class="eyebrow" data-i18n="takeALook">TAKE A LOOK</div><h2 id="preview-title">Cartela</h2></div><button class="dialog-close icon-button" type="button" aria-label="Close preview">×</button></div><div id="preview-card"></div><p class="preview-note" id="preview-note"></p><button id="reserve-button" class="primary-button" type="button" data-i18n="reserveCard">Choose this card</button><button id="preview-deposit-button" class="action-button action-deposit" type="button" hidden data-wallet-i18n="deposit">Deposit</button></dialog>
   <dialog id="rules-dialog"><div class="dialog-heading"><h2 data-i18n="rulesTitle">How to play</h2><button class="dialog-close icon-button" type="button" aria-label="Close rules">×</button></div><div id="rules-content" class="rules-content"></div></dialog>
+  <dialog id="admin-dialog" aria-labelledby="admin-title"><div class="dialog-heading"><h2 id="admin-title" data-i18n="roomControls">Room controls</h2><button class="dialog-close icon-button" type="button" aria-label="Close room controls">×</button></div><p class="muted" data-i18n="settingsHint">Changes apply to the next round once any card is reserved.</p><form id="room-settings-form" class="settings-form">
+    <label><span data-i18n="seatLimit">Maximum reserved cards</span><input name="seat_limit" type="number" min="2" max="600" required></label>
+    <label><span data-i18n="minPlayers">Minimum distinct players</span><input name="min_players" type="number" min="1" max="600" required></label>
+    <label><span data-i18n="registrationSeconds">Registration countdown (seconds)</span><input name="registration_seconds" type="number" min="10" max="300" required></label>
+    <label><span data-i18n="callSeconds">Time per call (seconds)</span><input name="call_interval_seconds" type="number" min="2" max="30" required></label>
+    <label><span data-i18n="resultsSeconds">Results display (seconds)</span><input name="result_seconds" type="number" min="5" max="60" required></label>
+    <label data-owner-only hidden><span data-i18n="cardPrice">Entry per card</span><input name="entry_credits" type="number" min="1" max="100000" required disabled></label>
+    <label class="full-width"><span data-i18n="numberPool">Number pool</span><select name="draw_mode"><option value="full_75" data-i18n="fullPool">All numbers 1–75</option><option value="selected_cards" data-i18n="selectedPool">Numbers on reserved cards only</option></select></label>
+    <p id="admin-status" class="full-width" role="status"></p><button id="save-room-settings" class="primary-button full-width" type="submit" data-i18n="saveSettings">Save room settings</button>
+  </form><div class="admin-links"><button id="funding-button" class="text-link" type="button" hidden data-wallet-i18n="fundingReview">Review transfers</button><button id="owner-button" class="text-link" type="button" hidden data-wallet-i18n="ownerSettings">Owner settings</button></div></dialog>
+  <dialog id="account-dialog" class="account-dialog" aria-labelledby="account-title"><div class="dialog-heading"><h2 id="account-title" data-wallet-i18n="accountTitle">My account</h2><button class="dialog-close icon-button" type="button" aria-label="Close account">×</button></div>
+    <p><span data-wallet-i18n="telegramId">Your Telegram ID</span>: <strong id="account-telegram-id">—</strong></p>
+    <p id="practice-account-note" data-wallet-i18n="practiceNote">Practice balances cannot be withdrawn. Manual funding is not enabled yet.</p>
+    <div id="manual-wallet" hidden>
+      <p data-wallet-i18n="conversion">1 credit = 1 birr. Deposits and withdrawals are reviewed manually.</p><p id="wallet-summary" class="wallet-summary"></p>
+      <details id="deposit-details"><summary data-wallet-i18n="addCredits">Add credits</summary><p id="deposit-instructions" class="account-instructions"></p><form id="deposit-form" class="settings-form">
+        <label><span data-wallet-i18n="amount">Amount in birr</span><input name="amount" type="number" min="0.01" max="1000000" step="0.01" required></label>
+        <label><span data-wallet-i18n="transferReference">Bank transfer reference</span><input name="reference" maxlength="100" minlength="4" required></label>
+        <label class="full-width"><span data-wallet-i18n="senderAccount">Your name, bank and sender account (also used for withdrawals)</span><input name="account" minlength="5" maxlength="300" required></label>
+        <label class="full-width"><span data-wallet-i18n="receiptLabel">Transfer screenshot (PNG/JPEG, up to 1 MB)</span><input name="receipt" type="file" accept="image/png,image/jpeg" required></label>
+        <p class="full-width" data-wallet-i18n="depositHint">Submit after transferring. Credits are added only after the receiving account confirms your transfer.</p><button class="primary-button full-width" type="submit" data-wallet-i18n="submitDeposit">Submit deposit for review</button>
+      </form></details>
+      <details><summary data-wallet-i18n="withdrawCredits">Withdraw credits</summary><p id="payout-account" class="account-instructions"></p><form id="withdrawal-form" class="settings-form"><label class="full-width"><span data-wallet-i18n="amount">Amount in birr</span><input name="amount" type="number" min="0.01" max="1000000" step="0.01" required></label><p class="full-width" data-wallet-i18n="withdrawalHint">Requested credits are held until the manual bank transfer is paid or the request is rejected. Withdrawals use the account from your latest approved deposit.</p><button class="primary-button full-width" type="submit" data-wallet-i18n="submitWithdrawal">Request withdrawal</button></form></details>
+      <h3 data-wallet-i18n="requests">Your recent requests</h3><div id="wallet-requests"></div><details><summary data-wallet-i18n="transactions">Recent credit activity</summary><div id="wallet-ledger"></div></details>
+    </div><p id="wallet-status" role="status"></p>
+  </dialog>
+  <dialog id="funding-dialog" class="account-dialog" aria-labelledby="funding-title"><div class="dialog-heading"><h2 id="funding-title" data-wallet-i18n="fundingReview">Review transfers</h2><button class="dialog-close icon-button" type="button" aria-label="Close funding review">×</button></div><p data-wallet-i18n="reviewHint">Verify deposits in the receiving account before approving. For withdrawals, make the bank transfer once and record its reference before marking paid.</p><button id="refresh-funding" class="text-link" type="button" data-wallet-i18n="refresh">Refresh requests</button><div id="funding-queue"></div><p id="funding-status" role="status"></p></dialog>
+  <dialog id="owner-dialog" class="account-dialog" aria-labelledby="owner-title" data-owner-only hidden>
+    <div class="dialog-heading"><h2 id="owner-title" data-wallet-i18n="ownerSettings">Owner settings</h2><button class="dialog-close icon-button" type="button" aria-label="Close owner settings">×</button></div>
+    <p id="owner-identity"></p><button id="refresh-owner" class="action-button" type="button" data-wallet-i18n="refreshOwner">Refresh dashboard</button>
+    <div id="owner-summary" class="owner-summary"></div>
+    <h3 data-wallet-i18n="administrators">Administrators</h3><p data-wallet-i18n="ownerAccessHint">Only the owner can grant or remove admin access. Removed admins lose access immediately.</p><div id="admin-members"></div>
+    <form id="member-form" class="settings-form"><label class="full-width"><span data-wallet-i18n="adminId">Administrator's numeric Telegram ID</span><input name="member" inputmode="numeric" pattern="[1-9][0-9]{0,19}" maxlength="20" required></label><button class="primary-button full-width" type="submit" data-wallet-i18n="addAdmin">Add administrator</button></form>
+    <details><summary data-wallet-i18n="receivingAccount">Receiving bank, beneficiary and account instructions</summary><form id="instructions-form" class="settings-form"><label class="full-width"><span data-wallet-i18n="receivingAccount">Receiving bank, beneficiary and account instructions</span><textarea name="instructions" rows="4" minlength="10" maxlength="2000" required></textarea></label><button class="primary-button full-width" type="submit" data-wallet-i18n="saveAccount">Save receiving account</button></form></details>
+    <details><summary data-wallet-i18n="roundManagement">Manage current round</summary><p id="owner-round-info"></p><form id="cancel-round-form" class="settings-form"><label class="full-width"><span data-wallet-i18n="cancelReason">Reason for cancellation</span><textarea name="note" rows="2" minlength="3" maxlength="500" required></textarea></label><p class="full-width" data-wallet-i18n="cancelHint">This ends the round and refunds every entry in full. No house fee is charged.</p><button id="cancel-round-button" class="primary-button full-width" type="submit" data-wallet-i18n="cancelRound">Cancel round and refund entries</button></form></details>
+    <details><summary data-wallet-i18n="fundingHistory">All funding requests</summary><label class="history-filter"><span data-wallet-i18n="requestStatus">Request status</span><select id="owner-history-status"><option value="" data-wallet-i18n="allRequests">All statuses</option><option value="pending" data-wallet-i18n="pending">Pending</option><option value="processing" data-wallet-i18n="processing">Processing</option><option value="approved" data-wallet-i18n="approved">Approved</option><option value="paid" data-wallet-i18n="paid">Paid</option><option value="rejected" data-wallet-i18n="rejected">Rejected</option></select></label><div id="owner-funding-history"></div><button id="more-owner-history" class="action-button" type="button" hidden data-wallet-i18n="loadMore">Load more</button></details>
+    <details><summary data-wallet-i18n="houseRounds">Recent house-fee records</summary><div id="owner-house-rounds"></div></details>
+    <details><summary data-wallet-i18n="ownerActivity">Recent owner activity</summary><div id="owner-activity"></div></details>
+    <p id="owner-status" role="status"></p>
+  </dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

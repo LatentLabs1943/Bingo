@@ -2,23 +2,40 @@
 
 A runnable Telegram Mini App and bot launcher implementing the supplied Amharic bingo rules. Python/FastAPI serves the API and vanilla HTML/CSS/JavaScript frontend. SQLite is used for the local demo; PostgreSQL is used for Vercel. The database stores cartelas, users, reservations, draws, marks, round state, and an exact credit ledger. Winner details are part of the round record, without a separate results table.
 
-This version uses **demo credits only**, including when launched from a real Telegram bot. New players receive 1,000 credits; each card costs 10 credits by default. There are no deposits, withdrawals, or cash payouts.
+By default this app uses **practice credits**. New practice players receive 1,000 credits and each card costs 10 credits. Optional manual funding uses a separate funded-credit wallet; see the setup and review workflow below.
 
 ## Live deployment
 
 The app is deployed at **https://bingo-telegram-olive.vercel.app**. Open **https://t.me/luckybingo75_bot**, send `/start`, and tap **Play Bingo** to authenticate and play. The deployment uses the Vercel Hobby project `bingo-telegram` and the connected Neon Free database `bingo-db`. The public `/health` endpoint checks database access; game endpoints require signed Telegram launch data. Production uses request-driven round timing as described below.
 
-The production Git repository is [LatentLabs1943/Bingo](https://github.com/LatentLabs1943/Bingo), with `master` as the production branch. Once it is connected under the existing Vercel project's **Settings > Git**, Vercel builds and publishes every push to `master` automatically:
+To publish future local changes from this linked directory, run `npx vercel deploy --prod --yes --scope acychappiekiller-3442`. Production credentials are already configured in Vercel. The local `.env` contains the bot settings needed by `python -m bingo.setup_webhook --check`; it is excluded from uploads and Git.
 
-```powershell
-git add <changed-files>
-git commit -m "Describe the change"
-git push origin master
-```
+## Room controls and manual funding
 
-Check the resulting deployment under **Deployments** in the `bingo-telegram` Vercel project. Other branches create preview deployments; production credentials and the Neon database are configured for Production, so previews need their own environment configuration before testing gameplay. The existing production URL stays the same. Database schema changes still need to be handled as part of the application update.
+An empty room never starts drawing. New rooms default to a maximum of **20 reserved cards** and a minimum of **2 distinct players**. A player's two cards count as one player. The registration countdown begins only when the minimum is met; releasing cards below that minimum stops the countdown. The server leaves enough seats for the required distinct players.
 
-Production credentials are already configured in Vercel. The local `.env` contains the bot settings needed by `python -m bingo.setup_webhook --check`; it is excluded from uploads and Git. Manual deployment remains available with `npx vercel deploy --prod --yes --scope acychappiekiller-3442` when needed.
+Signed-in administrators can open **Room controls** to change the card limit, minimum players, registration/countdown timing, results timing, and draw mode. Only the owner can change the entry price. A limit of N offers cartelas 1–N, up to 600, with at most two cards per player. The server rejects new reservations outside that range. Existing paid reservations remain valid and releasable. Settings apply immediately to an empty registration room, or to the next round once any card is reserved. Changes are versioned and audited; they cannot change an active round's price or draw mode.
+
+- **Full pool:** numbers 1–75 are shuffled without replacement.
+- **Selected-card pool:** only the union of non-free numbers on the reserved cards is shuffled. This mode changes the odds and is disclosed in the room. The pool is frozen when registration closes; no admin can choose or reorder calls. When the pool is exhausted with no marked winner, entries are refunded.
+
+Manual funding is implemented but stays disabled unless configured. To activate it:
+
+1. Open the Mini App from the owner's Telegram account and use **My account** to read the numeric Telegram ID. A username or bot token does not establish the owner's identity.
+2. Set `OWNER_TELEGRAM_ID` to that ID in Vercel Production and redeploy. The owner can then open **Room controls > Owner settings**, add administrators by numeric Telegram ID, and configure the receiving bank/mobile-money account instructions. Only the owner can grant or remove administrators. Removal takes effect immediately and overrides the static hosting allowlist until the owner restores access. The owner's ID is protected from removal. The owner dashboard includes active and removed admins, separate funded/practice house income, funding history with status filters, audit activity, and cancellation with full refunds. The owner can explicitly take over a withdrawal assigned to another admin; this is audited. `ADMIN_TELEGRAM_IDS` is an optional initial static allowlist; the owner can revoke those admins in the app without a redeployment.
+3. With Telegram authentication already configured (`DEMO_MODE=false`), set `FUNDS_MODE=manual` in Production and redeploy. `DEMO_MODE` controls guest access, not the currency. The default `FUNDS_MODE=practice` keeps fictional credits. Manual funding refuses to start with guest access or an unconfigured owner.
+
+**1 credit = 1 birr.** Funded balances start at zero and have a separate wallet and ledger. Historical practice balances never become withdrawable. An empty room adopts the configured funds mode; an existing round with reservations keeps its original currency until it ends. Card prices are whole credits and can be changed in Room controls. A reservation atomically deducts the full card price; insufficient funds cannot reserve a seat. The prominent Deposit button opens the deposit form directly, including from an insufficient-balance card preview.
+
+Players submit a deposit amount, bank transaction reference, sender bank/account details, and a PNG/JPEG screenshot up to 1 MB. The request stays pending until an administrator verifies the actual receiving-account transaction and approves it. A screenshot is supporting evidence, never automatic approval. Duplicate transfer references are rejected; retries and concurrent approvals cannot credit a request twice. Receipts are stored privately in PostgreSQL and can be retrieved only by authenticated administrators.
+
+A withdrawal reserves the requested credits immediately, preventing them from being spent in a game. The payout account comes from the player's latest approved deposit and is frozen on the request. An administrator claims the request before making the manual transfer, then records the bank reference and marks it paid. Claimed requests stay visible as processing; rejected requests return the held amount once. Marking a request paid does not debit the wallet again. No bank transfer is made automatically by this application.
+
+New rounds take a **20% house fee** from each player's total entry contribution: 100 credits in entries produces an 80-credit prize pool and 20 credits of house income. The public `pool` is the net prize pool. Players see the deduction terms in the rules and card confirmation before joining; the main player screen shows the entry price and net prize without an owner finance panel. `gross_pool`, `house_fee`, `house_fee_charged`, and internal cancellation notes are returned only to the owner. Each winning player's share is calculated from the net pool using exact fractions. The fee and payouts settle once in the same transaction and are recorded in `house_ledger`. Released entries, cancelled rounds, and rounds with no marked winner receive full refunds with no house fee. Existing rounds with reservations keep their original fee terms. House income is separate from player wallets, with funded and practice earnings reported separately.
+
+Views use the verified Telegram identity, never a client-supplied role. Players get gameplay, their wallet and their own requests. Admins get operational room settings and funding requests that are pending or assigned to them. Card-price changes, admin management, receiving-account edits, income, full funding history, archived receipts, audit activity, cancellations and withdrawal takeover are owner-only. The API enforces these permissions independently of button visibility. Losing staff access closes privileged dialogs and clears cached private content. Local preview links for the three test roles are provided only by the ignored loopback preview helper.
+
+Players can view recent requests and credit activity in My account. Balances and prizes remain exact internally; withdrawals use two decimal places and preserve any smaller remainder in the wallet. Owner changes, room settings, funding reviews and wallet changes retain audit records. Real bank transfers and real-money activation still require operator setup and verification; automated tests use local test accounts and never move money.
 
 ## Run the browser demo
 
@@ -31,7 +48,7 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 .\.venv\Scripts\python.exe -m uvicorn bingo.server:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-Open **http://127.0.0.1:8000**. No Telegram token is needed for the local demo. Use another browser or an incognito window to test a second player; tabs in the same browser share one identity. A selected card appears green to its owner and red to everyone else. Browse the six card ranges, choose All to see all 600, or search for a card number.
+Open **http://127.0.0.1:8000**. No Telegram token is needed for the local demo. Use another browser or an incognito window to test a second player; tabs in the same browser share one identity. A selected card appears green to its owner and red to everyone else. The card board and search follow the current round's card limit. Rooms above 100 cards show only the relevant ranges and an All option.
 
 The moon/sun button in the header switches between light and dark mode and remembers the choice on that device. With no saved choice, the app follows Telegram's theme inside Telegram and the operating system's theme in a normal browser. The Telegram header and background follow the selected theme on supported clients. Theme changes do not write to the game database.
 
@@ -97,9 +114,9 @@ Telegram's [Mini App documentation](https://core.telegram.org/bots/webapps#valid
 | Preview the numbers | Tap a card to preview before selecting it |
 | Countdown enters the game | Reserved cards join automatically when registration closes |
 | Random calls from 1–75 | Securely shuffled server deck, without replacement |
-| Manual or Automatic marking | Only called numbers on your own cards can be marked; Automatic catches up on earlier calls |
+| Manual or Automatic marking | Automatic is on by default for new players and catches up on called numbers; players can switch to manual and their choice is saved |
 | Winning patterns | Any of 5 rows, 5 columns, either diagonal, or the four corners |
-| Shared prize | Entire entry pool divided equally per winning player, without a house deduction |
+| Shared prize | 80% of total entries divided equally per winning player; 20% recorded as the house fee |
 
 Explicit choices where the original rules leave details open:
 
@@ -108,7 +125,7 @@ Explicit choices where the original rules leave details open:
 - Winners are checked **together at the end of each call interval**, before drawing again. Auto and manual players have the same interval to complete marks. There is no first-click-wins claim race or separate Bingo button. Manual players who miss the check are not added retroactively.
 - If two of one player's cards win, that player still receives one equal player share. Fractional demo shares are stored exactly as rational numbers; the UI rounds to two decimals.
 - Selection immediately reserves a card and deducts entry credits atomically. Releasing it before registration closes refunds the entry. Retrying a selection or release does not double charge or double refund.
-- Empty registration periods renew. Players arriving during a game may watch and join the next round. If all 75 numbers are called without a marked winner, all entries are refunded.
+- Registration waits for the configured minimum distinct players. Players arriving during a game may watch and join the next round. If every number in the round's pool is called without a marked winner, all entries are refunded.
 - A restart preserves the current round. Overdue draws resume **one at a time**, giving manual players a fresh marking interval instead of silently racing through missed numbers.
 
 ## Tests

@@ -14,6 +14,7 @@ from .config import Settings
 from .storage import Store
 
 RNG = random.SystemRandom()
+HOUSE_CUT_PERCENT = 20
 LINES = (
     tuple(tuple(row * 5 + col for col in range(5)) for row in range(5))
     + tuple(tuple(row * 5 + col for row in range(5)) for col in range(5))
@@ -58,6 +59,11 @@ class Engine:
                 db.executemany("INSERT INTO cards VALUES (?,?)", missing)
             if not db.execute("SELECT 1 FROM rounds LIMIT 1").fetchone():
                 self._new_round(db, time.time())
+            else:
+                game = self._game(db)
+                if game["phase"] == "registration" and not self._entries(db, game) and game["funds_mode"] != settings.funds_mode:
+                    game["funds_mode"] = settings.funds_mode
+                    self._save(db, game)
 
     def _transaction(self):
         return self.store.transaction()
@@ -67,23 +73,159 @@ class Engine:
             db.execute("SELECT 1").fetchone()
 
     def _new_round(self, db, now):
+        rules = self._room_settings(db)["settings"]
         game = {"id": uuid.uuid4().hex, "phase": "registration", "called": [],
                 "pool": 0, "winners": [], "reason": None, "deck": [],
-                "deadline": now + self.settings.registration_seconds,
-                "entry_credits": self.settings.entry_credits,
-                "call_interval": self.settings.call_interval_seconds,
-                "registration_seconds": self.settings.registration_seconds,
-                "result_seconds": self.settings.result_seconds}
+                "deadline": now + rules["registration_seconds"],
+                "entry_credits": rules["entry_credits"],
+                "call_interval": rules["call_interval_seconds"],
+                "registration_seconds": rules["registration_seconds"],
+                "result_seconds": rules["result_seconds"],
+                "seat_limit": rules["seat_limit"], "min_players": rules["min_players"],
+                "draw_mode": rules["draw_mode"], "draw_pool_size": 75 if rules["draw_mode"] == "full_75" else 0,
+                "funds_mode": self.settings.funds_mode,
+                "house_cut_percent": HOUSE_CUT_PERCENT, "house_fee_charged": "0",
+                "waiting_for_players": True}
         db.execute("INSERT INTO rounds VALUES (?,?,?)", (game["id"], now, json.dumps(game)))
         return game
 
     def _game(self, db):
-        return json.loads(db.execute("SELECT data FROM rounds ORDER BY created DESC, id DESC LIMIT 1").fetchone()[0])
+        game = json.loads(db.execute("SELECT data FROM rounds ORDER BY created DESC, id DESC LIMIT 1").fetchone()[0])
+        legacy = "seat_limit" not in game
+        missing_fee = "house_cut_percent" not in game
+        # Preserve the rules of rounds created before room settings were added.
+        game.setdefault("seat_limit", 600)
+        game.setdefault("min_players", 1)
+        game.setdefault("waiting_for_players", False)
+        game.setdefault("draw_mode", "full_75")
+        game.setdefault("draw_pool_size", 75)
+        game.setdefault("funds_mode", "practice")
+        game.setdefault("house_cut_percent", 0)
+        game.setdefault("house_fee_charged", "0")
+        if legacy and game["phase"] == "registration" and not self._entries(db, game):
+            rules = self._room_settings(db)["settings"]
+            game.update(seat_limit=rules["seat_limit"], min_players=rules["min_players"],
+                        call_interval=rules["call_interval_seconds"], registration_seconds=rules["registration_seconds"],
+                        result_seconds=rules["result_seconds"], entry_credits=rules["entry_credits"],
+                        draw_mode=rules["draw_mode"], waiting_for_players=True)
+            self._save(db, game)
+        if missing_fee and game["phase"] == "registration" and not self._entries(db, game):
+            game["house_cut_percent"] = HOUSE_CUT_PERCENT
+            self._save(db, game)
+        return game
+
+    def _room_settings(self, db):
+        row = db.execute("SELECT value FROM metadata WHERE key='room_settings'").fetchone()
+        if row:
+            return json.loads(row[0])
+        return {"version": 0, "settings": {
+            "seat_limit": self.settings.seat_limit, "min_players": self.settings.min_players,
+            "registration_seconds": self.settings.registration_seconds,
+            "call_interval_seconds": self.settings.call_interval_seconds,
+            "result_seconds": self.settings.result_seconds,
+            "entry_credits": self.settings.entry_credits, "draw_mode": "full_75"}}
+
+    def _require_admin(self, uid):
+        if not self.is_admin(uid):
+            raise GameError("Administrator access is required.", "forbidden")
+
+    def _is_admin(self, db, uid):
+        uid = str(uid)
+        if self.settings.owner_telegram_id and uid == self.settings.owner_telegram_id:
+            return True
+        if db.execute("SELECT 1 FROM admin_revocations WHERE user_id=?", (uid,)).fetchone():
+            return False
+        return (uid in self.settings.admin_telegram_ids or
+                bool(db.execute("SELECT 1 FROM admin_members WHERE user_id=?", (uid,)).fetchone()))
+
+    def _require_owner(self, uid):
+        if not self.settings.owner_telegram_id or str(uid) != self.settings.owner_telegram_id:
+            raise GameError("Only the bot owner can change this.", "forbidden")
+
+    def is_admin(self, uid):
+        with self._transaction() as db:
+            return self._is_admin(db, uid)
+
+    def admin_settings(self, uid):
+        with self._transaction() as db:
+            if not self._is_admin(db, uid):
+                raise GameError("Administrator access is required.", "forbidden")
+            return self._admin_snapshot(db, owner=str(uid) == self.settings.owner_telegram_id)
+
+    def _admin_snapshot(self, db, owner=False):
+        game = self._game(db)
+        data = {**self._room_settings(db), "can_edit_price": owner, "current_round": {
+            "id": game["id"], "phase": game["phase"],
+            "reserved_cards": len(self._entries(db, game)),
+            "seat_limit": game["seat_limit"], "min_players": game["min_players"],
+            "registration_seconds": game["registration_seconds"],
+            "call_interval_seconds": game["call_interval"],
+            "result_seconds": game["result_seconds"],
+            "entry_credits": game["entry_credits"], "draw_mode": game["draw_mode"],
+            "house_cut_percent": game["house_cut_percent"]}}
+        if not owner:
+            data["settings"] = {key: value for key, value in data["settings"].items() if key != "entry_credits"}
+            data["current_round"].pop("house_cut_percent")
+        return data
+
+    def update_room_settings(self, uid, version, values, now=None):
+        self._require_admin(uid)
+        expected = {"seat_limit", "min_players", "registration_seconds", "call_interval_seconds", "result_seconds", "entry_credits", "draw_mode"}
+        bounds = {"seat_limit": (2, 600), "min_players": (1, 600),
+                  "registration_seconds": (10, 300), "call_interval_seconds": (2, 30),
+                  "result_seconds": (5, 60), "entry_credits": (1, 100000)}
+        if (type(version) is not int or not expected - {"entry_credits"} <= set(values) <= expected):
+            raise GameError("Invalid room settings.", "invalid_settings")
+        now = time.time() if now is None else now
+        with self._transaction() as db:
+            if not self._is_admin(db, uid):
+                raise GameError("Administrator access is required.", "forbidden")
+            current = self._room_settings(db)
+            if current["version"] != version:
+                raise GameError("Settings changed. Reload them before saving.", "stale_settings")
+            owner = str(uid) == self.settings.owner_telegram_id
+            if not owner and "entry_credits" in values and values["entry_credits"] != current["settings"]["entry_credits"]:
+                raise GameError("Only the owner can change the card price.", "forbidden")
+            values = {**values, "entry_credits": values.get("entry_credits", current["settings"]["entry_credits"])}
+            if (any(type(values[key]) is not int or not low <= values[key] <= high for key, (low, high) in bounds.items()) or
+                    values["min_players"] > values["seat_limit"] or values["draw_mode"] not in ("full_75", "selected_cards")):
+                raise GameError("Invalid room settings.", "invalid_settings")
+            record = {"version": version + 1, "settings": values}
+            db.execute("INSERT INTO metadata(key,value) VALUES ('room_settings',?) "
+                       "ON CONFLICT (key) DO UPDATE SET value=excluded.value", (json.dumps(record),))
+            db.execute("INSERT INTO admin_events(user_id,created,settings,version) VALUES (?,?,?,?)",
+                       (str(uid), now, json.dumps(values), record["version"]))
+            game = self._game(db)
+            immediate = game["phase"] == "registration" and not self._entries(db, game)
+            if immediate:
+                game.update(seat_limit=values["seat_limit"], min_players=values["min_players"],
+                            registration_seconds=values["registration_seconds"],
+                            call_interval=values["call_interval_seconds"], result_seconds=values["result_seconds"],
+                            entry_credits=values["entry_credits"], draw_mode=values["draw_mode"],
+                            draw_pool_size=75 if values["draw_mode"] == "full_75" else 0,
+                            deadline=now + values["registration_seconds"], waiting_for_players=True)
+                self._save(db, game)
+            return {**self._admin_snapshot(db, owner=owner), "applies": "current_round" if immediate else "next_round"}
+
+    def _sync_registration(self, db, game, now):
+        if game["phase"] != "registration":
+            return
+        players = len({entry["user_id"] for entry in self._entries(db, game)})
+        waiting = players < game["min_players"]
+        if waiting != game["waiting_for_players"]:
+            game["waiting_for_players"] = waiting
+            # Begin a full countdown when enough distinct players have joined.
+            # Dropping below the minimum cancels that countdown.
+            game["deadline"] = now + game["registration_seconds"]
+            self._save(db, game)
 
     def _save(self, db, game):
         db.execute("UPDATE rounds SET data=? WHERE id=?", (json.dumps(game), game["id"]))
 
-    def _credit(self, db, uid, amount, reason, round_id, now):
+    def _credit(self, db, uid, amount, reason, round_id, now, funds_mode="practice"):
+        if funds_mode == "manual":
+            from .wallet import change_balance
+            return change_balance(db, uid, amount, reason, now, round_id=round_id)
         row = db.execute("SELECT balance FROM users WHERE id=?", (uid,)).fetchone()
         balance = Fraction(row[0]) + amount
         if balance < 0:
@@ -96,7 +238,8 @@ class Engine:
         uid = str(uid)
         with self._transaction() as db:
             if not db.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
-                db.execute("INSERT INTO users(id,name,balance) VALUES (?,?,?)", (uid, name[:80], "0"))
+                # Explicitly set the default for databases created with the old schema too.
+                db.execute("INSERT INTO users(id,name,balance,automatic) VALUES (?,?,?,1)", (uid, name[:80], "0"))
                 self._credit(db, uid, self.settings.starting_credits, "welcome", None, time.time())
             else:
                 db.execute("UPDATE users SET name=? WHERE id=?", (name[:80], uid))
@@ -148,18 +291,48 @@ class Engine:
                            (json.dumps(marks), game["id"], entry["card_id"]))
 
     def _finish(self, db, game, winners, now, reason):
-        game.update(phase="finished", deadline=now + self.settings.result_seconds, reason=reason)
+        if game["phase"] == "finished":
+            raise GameError("This round has already been settled.", "round_settled")
+        game.update(phase="finished", deadline=now + game["result_seconds"], reason=reason)
         if winners:
-            share = Fraction(game["pool"], len(winners))
+            gross = Fraction(game["pool"])
+            fee = gross * Fraction(game["house_cut_percent"], 100)
+            prize_pool = gross - fee
+            share = prize_pool / len(winners)
+            game["house_fee_charged"] = str(fee)
+            db.execute("INSERT INTO house_ledger(round_id,funds_mode,gross,fee,prize_pool,created) VALUES (?,?,?,?,?,?)",
+                       (game["id"], game["funds_mode"], str(gross), str(fee), str(prize_pool), now))
             for uid, data in winners.items():
-                self._credit(db, uid, share, "prize", game["id"], now)
+                self._credit(db, uid, share, "prize", game["id"], now, game["funds_mode"])
                 game["winners"].append({"user_id": uid, "name": data["name"],
                                         "card_ids": data["cards"], "share": str(share)})
         else:
             for entry in self._entries(db, game):
-                self._credit(db, entry["user_id"], game["entry_credits"], "refund", game["id"], now)
+                self._credit(db, entry["user_id"], game["entry_credits"], "refund", game["id"], now, game["funds_mode"])
+
+    def cancel_round(self, uid, round_id, note, now=None):
+        self._require_owner(uid)
+        if not isinstance(note, str) or not 3 <= len(note.strip()) <= 500:
+            raise GameError("Give a reason for cancelling the round.")
+        now = time.time() if now is None else now
+        with self._transaction() as db:
+            game = self._game(db)
+            if game["id"] != round_id:
+                raise GameError("A new round has started. Reload before cancelling.", "stale_round")
+            if game["phase"] == "finished":
+                raise GameError("This round has already been settled.", "round_settled")
+            self._finish(db, game, {}, now, "owner_cancelled")
+            game["cancellation_note"] = note.strip()
+            self._save(db, game)
+            db.execute("INSERT INTO owner_events(user_id,action,target,created) VALUES (?,?,?,?)",
+                       (str(uid), "cancel_round", json.dumps({"round_id": round_id, "reason": note.strip()}), now))
+            return self._snapshot(db, game, str(uid), now)
 
     def _advance(self, db, game, now):
+        if game["phase"] == "registration":
+            self._sync_registration(db, game, now)
+            if game["waiting_for_players"]:
+                return game
         if now < game["deadline"]:
             return game
         if game["phase"] == "finished":
@@ -167,10 +340,13 @@ class Engine:
         if game["phase"] == "registration":
             if not self._entries(db, game):
                 # Keep an empty lobby open; never draw a round without players.
-                game["deadline"] = now + self.settings.registration_seconds
+                game["deadline"] = now + game["registration_seconds"]
             else:
                 game["phase"] = "playing"
-                game["deck"] = RNG.sample(range(1, 76), 75)
+                numbers = (set(range(1, 76)) if game["draw_mode"] == "full_75" else
+                           {n for entry in self._entries(db, game) for n in json.loads(entry["cells"]) if n})
+                game["draw_pool_size"] = len(numbers)
+                game["deck"] = RNG.sample(sorted(numbers), len(numbers))
                 game["called"].append(game["deck"].pop())
                 game["deadline"] = now + game["call_interval"]
                 self._auto_mark(db, game)
@@ -201,7 +377,18 @@ class Engine:
         if user is None:
             raise GameError("Open the game again to sign in.", "unauthorized")
         entries = self._entries(db, game)
-        public = {key: value for key, value in game.items() if key != "deck"}
+        fields = {"id", "phase", "called", "winners", "reason", "deadline", "entry_credits", "call_interval",
+                  "registration_seconds", "result_seconds", "seat_limit", "min_players", "draw_mode",
+                  "draw_pool_size", "funds_mode", "waiting_for_players", "house_cut_percent"}
+        public = {key: value for key, value in game.items() if key in fields}
+        gross = Fraction(game["pool"])
+        refunded = game["phase"] == "finished" and game["reason"] != "bingo"
+        fee = gross * Fraction(game["house_cut_percent"], 100) if not refunded else Fraction(0)
+        public["pool"] = str(gross - fee if not refunded else Fraction(0))
+        if str(uid) == self.settings.owner_telegram_id:
+            public.update(gross_pool=str(gross), house_fee=str(fee), house_fee_charged=game["house_fee_charged"])
+            if "cancellation_note" in game:
+                public["cancellation_note"] = game["cancellation_note"]
         public["winners"] = [{**w, "is_you": w["user_id"] == uid}
                              for w in public["winners"]]
         # Telegram IDs are not needed in the public room snapshot.
@@ -213,7 +400,11 @@ class Engine:
                                  "marks": json.loads(e["marks"]),
                                  "winning_cells": winning_cells(json.loads(e["marks"]))}
                                 for e in entries if e["user_id"] == uid])
-        return {"game": public, "user": {"name": user["name"], "balance": user["balance"],
+        balance = user["balance"]
+        if game["funds_mode"] == "manual":
+            row = db.execute("SELECT balance FROM wallets WHERE user_id=?", (uid,)).fetchone()
+            balance = row[0] if row else "0"
+        return {"game": public, "user": {"name": user["name"], "balance": balance,
                                           "automatic": bool(user["automatic"])}}
 
     def state(self, uid, now=None):
@@ -255,7 +446,15 @@ class Engine:
                                        (round_id, uid)).fetchone()[0]
                     if count >= 2:
                         raise GameError("You can choose up to two cards.", "card_limit")
-                    self._credit(db, uid, -game["entry_credits"], "entry", round_id, now)
+                    if len(self._entries(db, game)) >= game["seat_limit"]:
+                        raise GameError("This round is full. Wait for a seat to open or join the next round.", "room_full")
+                    if card_id > game["seat_limit"]:
+                        raise GameError(f"Choose a cartela from 1 to {game['seat_limit']} for this room.", "card_outside_room")
+                    entries = self._entries(db, game)
+                    players_after = len({e["user_id"] for e in entries} | {uid})
+                    if game["seat_limit"] - len(entries) - 1 < max(0, game["min_players"] - players_after):
+                        raise GameError("Leave a seat for the players needed to start this round.", "seats_needed")
+                    self._credit(db, uid, -game["entry_credits"], "entry", round_id, now, game["funds_mode"])
                     db.execute("INSERT INTO entries(round_id,card_id,user_id) VALUES (?,?,?)",
                                (round_id, card_id, uid))
                     game["pool"] += game["entry_credits"]
@@ -264,9 +463,10 @@ class Engine:
                         raise GameError("You can only release your own card.", "not_your_card")
                     if entry:
                         db.execute("DELETE FROM entries WHERE round_id=? AND card_id=?", (round_id, card_id))
-                        self._credit(db, uid, game["entry_credits"], "release", round_id, now)
+                        self._credit(db, uid, game["entry_credits"], "release", round_id, now, game["funds_mode"])
                         game["pool"] -= game["entry_credits"]
                 self._save(db, game)
+                self._sync_registration(db, game, now)
             elif action == "automatic":
                 if type(enabled) is not bool:
                     raise GameError("Automatic must be on or off.")

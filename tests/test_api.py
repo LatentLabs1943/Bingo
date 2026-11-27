@@ -60,7 +60,7 @@ class APITests(unittest.TestCase):
         self.addCleanup(self.client.close)
 
     def make_settings(self, path):
-        return Settings(database_path=path)
+        return Settings(database_path=path, seat_limit=600)
 
     def test_demo_session_gameplay_and_static_assets(self):
         self.assertEqual(self.client.get("/api/state").status_code, 401)
@@ -68,6 +68,7 @@ class APITests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         state = response.json()
         self.assertEqual(state["user"]["balance"], "1000")
+        self.assertTrue(state["user"]["automatic"])
         self.assertIn("HttpOnly", response.headers["set-cookie"])
         body = {"round_id": state["game"]["id"], "card_id": 600}
         response = self.client.post("/api/actions/select", json=body)
@@ -82,10 +83,12 @@ class APITests(unittest.TestCase):
     def test_demo_identity_survives_server_restart_and_does_not_refill(self):
         state = self.client.post("/api/session", json={}).json()
         self.client.post("/api/actions/select", json={"round_id": state["game"]["id"], "card_id": 1})
+        self.client.post("/api/actions/automatic", json={"round_id": state["game"]["id"], "enabled": False})
         with TestClient(create_app(self.settings)) as restarted:
             restarted.cookies.update(self.client.cookies)
             response = restarted.post("/api/session", json={})
             self.assertEqual(response.json()["user"]["balance"], "990")
+            self.assertFalse(response.json()["user"]["automatic"])
 
     def test_validation_cross_origin_and_auth_cannot_be_bypassed(self):
         state = self.client.post("/api/session", json={}).json()

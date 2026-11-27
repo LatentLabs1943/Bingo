@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from .config import Settings
-from .rules import RULES_AM, RULES_EN
+from .rules import rules_for
 
 logger = logging.getLogger("bingo.bot")
 
@@ -49,11 +49,12 @@ def reply_for(update, settings):
     language = sender.get("language_code", "") if isinstance(sender, dict) else ""
     amharic = isinstance(language, str) and language.startswith("am")
     if command == "/rules":
-        answer = RULES_AM if amharic else RULES_EN
+        answer = rules_for(settings, "am" if amharic else "en")
     else:
         answer = ("እንኳን ወደ ቢንጎ በደህና መጡ! 🎱\nእስከ 2 ካርዶች ይምረጡ።\n\n"
                   if amharic else "Welcome to Bingo! 🎱\nChoose up to 2 cards, follow the calls, and complete a winning pattern.\n\n")
-        answer += "Demo credits only · No deposits or cash prizes.\n/rules — How to play"
+        answer += ("1 credit = 1 birr · Manual deposit and withdrawal review.\n/rules — How to play"
+                   if settings.funds_mode == "manual" else "Demo credits only · No deposits or cash prizes.\n/rules — How to play")
     return {"chat_id": chat["id"], "text": answer,
             "reply_markup": {"inline_keyboard": [[{"text": "🎱 Play Bingo / ይጫወቱ",
                 "web_app": {"url": settings.webapp_url}}]]}}
